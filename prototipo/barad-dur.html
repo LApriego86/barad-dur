@@ -585,9 +585,7 @@ async function fetchLiveSeo(code, gid){
     const now = Date.now();
     LIVE_SEO_UPDATED_AT[code] = now;
     saveSeoCacheToStorage(code, data, now);
-    delete seoCache[code];
-    delete kpiSeoMatchIndexByMarket[code];
-    delete seoToKpiIndexByMarket[code];
+    clearDerivedSeoCaches(code);
   } catch(e){
     LIVE_SEO_STATUS[code] = 'error';
     console.warn('[Barad-dûr] No se pudo cargar SEO en vivo de Google Sheets para', code, e);
@@ -629,12 +627,10 @@ async function forceLiveSeoRefresh(code = state.market.code){
   try {
     localStorage.removeItem(SEO_CACHE_PREFIX + code);
   } catch(e){ /* no crítico */ }
-  delete seoCache[code];
+  clearDerivedSeoCaches(code);
   delete LIVE_SEO[code];
   delete LIVE_SEO_STATUS[code];
   delete LIVE_SEO_UPDATED_AT[code];
-  delete kpiSeoMatchIndexByMarket[code];
-  delete seoToKpiIndexByMarket[code];
   await fetchLiveSeo(code, gid);
   if (code === state.market.code) render();
 }
@@ -765,8 +761,7 @@ async function handleKpiUpload(file){
     if (!data.length) throw new Error('No se reconocieron columnas válidas (revisa las cabeceras).');
     UPLOADED_KPI[state.market.code] = data;
     delete kpiCache[state.market.code];
-    delete kpiSeoMatchIndexByMarket[state.market.code];
-    delete seoToKpiIndexByMarket[state.market.code];
+    clearDerivedSeoCaches(state.market.code);
     if (statusEl) statusEl.innerHTML = `<span class="badge live-ok">✓ ${data.length} titulaciones cargadas para ${esc(state.market.name)} · datos reales activos</span>`;
     render();
   } catch(e){
@@ -791,6 +786,7 @@ function buildMarketKpi(market){
 }
 
 const seoCache = {};
+const crossMarketMatchCache = {};
 function buildMarketSeo(market){
   if (seoCache[market.code]) return seoCache[market.code];
   if (LIVE_SEO[market.code]){
@@ -803,6 +799,29 @@ function buildMarketSeo(market){
   }
   seoCache[market.code] = [];
   return seoCache[market.code];
+}
+
+function clearDerivedSeoCaches(code){
+  delete seoCache[code];
+  delete kpiSeoMatchIndexByMarket[code];
+  delete seoToKpiIndexByMarket[code];
+  delete crossMarketMatchCache[code];
+}
+
+function buildCrossMarketMatchIndex(market){
+  if (crossMarketMatchCache[market.code]) return crossMarketMatchCache[market.code];
+  const rows = buildMarketSeo(market);
+  const byCore = new Map();
+  const bySlug = new Map();
+  rows.forEach(row=>{
+    const core = normalizeMatch((row.title||'').replace(TITLE_PREFIX_RE,''));
+    const slug = (row.permalink||'').split('/').filter(Boolean).pop() || '';
+    if (core && !byCore.has(core)) byCore.set(core, row);
+    if (slug && !bySlug.has(slug)) bySlug.set(slug, row);
+  });
+  const index = { byCore, bySlug };
+  crossMarketMatchCache[market.code] = index;
+  return index;
 }
 
 const crawlCache = {};
@@ -1347,49 +1366,21 @@ function renderSeo(c){
 /* ======================= CROSS-MARKET ======================= */
 function renderCross(c){
   const base = buildMarketSeo(MARKETS[0]);
-  const sample = base;
-  const others = MARKETS.slice(1);
-  const titleCore = row => normalizeMatch((row.title||'').replace(TITLE_PREFIX_RE,''));
-  const wordSet = text => new Set(normalizeMatch(text).split(' ').filter(Boolean));
-  function scoreRows(reference, candidate){
-    const refCore = titleCore(reference);
-    const candCore = titleCore(candidate);
-    if (!refCore || !candCore) return 0;
-    if (refCore === candCore) return 1;
-    const refWords = wordSet(refCore);
-    const candWords = wordSet(candCore);
-    if (!refWords.size || !candWords.size) return 0;
-    let inter = 0;
-    refWords.forEach(w=>{ if (candWords.has(w)) inter++; });
-    const union = new Set([...refWords, ...candWords]).size;
-    const jaccard = union ? inter / union : 0;
-    const refSlug = (reference.permalink||'').split('/').filter(Boolean).pop() || '';
-    const candSlug = (candidate.permalink||'').split('/').filter(Boolean).pop() || '';
-    return Math.max(jaccard, refSlug && candSlug && refSlug === candSlug ? 0.9 : 0);
-  }
-  const rows = sample.map(pe=>{
-    const cells = others.map(m=>{
-      const marketRows = buildMarketSeo(m);
-      let row = null;
-      let bestScore = 0;
-      marketRows.forEach(candidate=>{
-        const score = scoreRows(pe, candidate);
-        if (score > bestScore){
-          bestScore = score;
-          row = candidate;
-        }
-      });
-      const crawl = row ? buildCrawlStatuses(m).find(r=>r.id===row.id) : null;
+  const others = MARKETS.slice(1).map(m=>({ market:m, index: buildCrossMarketMatchIndex(m) }));
+  const rows = base.map(pe=>{
+    const refCore = normalizeMatch((pe.title||'').replace(TITLE_PREFIX_RE,''));
+    const refSlug = (pe.permalink||'').split('/').filter(Boolean).pop() || '';
+    const cells = others.map(({ market, index })=>{
+      const row = (refCore && index.byCore.get(refCore)) || (refSlug && index.bySlug.get(refSlug)) || null;
+      const crawl = row ? buildCrawlStatuses(market).find(r=>r.id===row.id) : null;
       const reasons = [];
       if (!row){
         reasons.push('No se encontró una ficha equivalente en este mercado');
-      } else if (bestScore < 0.5){
-        reasons.push('La coincidencia temática es demasiado baja para considerarla equivalente');
       }
       if (crawl && (crawl.status===404 || crawl.status===500)){
         reasons.push('Página caída: error ' + crawl.status);
       }
-      return { market:m, match: !!row && bestScore>=0.5 && !(crawl && (crawl.status===404 || crawl.status===500)), reasons, row, score:bestScore };
+      return { market, match: !!row && !(crawl && (crawl.status===404 || crawl.status===500)), reasons, row };
     });
     return { pe, cells };
   });
