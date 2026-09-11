@@ -283,7 +283,7 @@ footer.app-foot{padding:14px 26px;font-size:11px;color:#93a0ac;text-align:center
       <div class="title">Barad-dûr<small>CONTROL TOWER TOOL</small></div>
     </div>
     <nav class="nav" id="nav"></nav>
-    <div class="foot">Demo funcional · v0.3<br>SEO Tags: en vivo (Google Sheets) · KPI: Perú real + CSV por mercado</div>
+    <div class="foot">Demo funcional · v0.3<br>SEO Tags: en vivo (Google Sheets) · comparación de títulos entre mercados</div>
   </aside>
 
   <div class="main">
@@ -301,7 +301,7 @@ footer.app-foot{padding:14px 26px;font-size:11px;color:#93a0ac;text-align:center
       <!-- sections injected by JS -->
     </div>
 
-    <footer class="app-foot">Barad-dûr Control Tower Tool — Prototipo estático de demostración. SEO conectado a Google Sheets; facturación por mercado mediante CSV cargado.</footer>
+    <footer class="app-foot">Barad-dûr Control Tower Tool — Prototipo estático de demostración. SEO conectado a Google Sheets; comparación de títulos entre mercados.</footer>
   </div>
 </div>
 
@@ -327,11 +327,11 @@ const MARKETS = [
 const FLAGS = { PE:'🇵🇪', MX:'🇲🇽', CO:'🇨🇴', EC:'🇪🇨', AR:'🇦🇷', ES:'🇪🇸', CL:'🇨🇱', US:'🇺🇸', LATAM:'🌎' };
 
 const MODULES = [
+  { id:'intro', ico:'✨', label:'Elegir mercado' },
   { id:'home', ico:'🏠', label:'Home' },
   { id:'seo', ico:'🗂️', label:'Titulaciones de UNIR' },
   { id:'cross', ico:'🌎', label:'Cross-Market' },
   { id:'tech', ico:'🛰️', label:'Technical Monitor' },
-  { id:'bi', ico:'📊', label:'Business Intelligence' },
   { id:'alerts', ico:'🚨', label:'Alert Center' },
   { id:'hist', ico:'🕘', label:'Histórico' },
 ];
@@ -423,7 +423,7 @@ function classifyEstudioPrefix(estudio){
   return classifyTitle(t);
 }
 
-/* ======================= ASOCIACIÓN TÍTULO ↔ SEO (Business Intelligence) ======================= */
+/* ======================= ASOCIACIÓN TÍTULO ↔ SEO ======================= */
 // Empareja cada "estudio" del CSV de negocio con su ficha SEO (título/URL/H1), normalizando
 // prefijos de nivel (G_, M_...) y de la ficha ("Grado en", "Máster Universitario en"...) y, si no
 // hay coincidencia exacta tras normalizar, usando solapamiento de palabras (coef. de Jaccard).
@@ -435,7 +435,7 @@ function normalizeMatch(s){
     .replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim();
 }
 const kpiSeoMatchIndexByMarket = {};
-function buildKpiSeoMatch(market = state.market){
+function buildKpiSeoMatch(market = getActiveMarket()){
   if (kpiSeoMatchIndexByMarket[market.code]) return kpiSeoMatchIndexByMarket[market.code];
   const seoRows = buildMarketSeo(market);
   const kpiRows = buildMarketKpi(market);
@@ -522,24 +522,49 @@ function saveSeoCacheToStorage(code, data, updatedAt){
 
 function parseDelimited(text, delim){
   const rows = [];
-  let row = [], field = '', inQuotes = false;
-  for (let i=0;i<text.length;i++){
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++){
     const ch = text[i];
     if (inQuotes){
       if (ch === '"'){
-        if (text[i+1] === '"'){ field += '"'; i++; }
-        else inQuotes = false;
-      } else field += ch;
-    } else if (ch === '"'){ inQuotes = true; }
-    else if (ch === delim){ row.push(field); field = ''; }
-    else if (ch === '\r'){ /* ignorar */ }
-    else if (ch === '\n'){ row.push(field); rows.push(row); row = []; field = ''; }
-    else field += ch;
+        if (text[i + 1] === '"'){
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += ch;
+      }
+      continue;
+    }
+    if (ch === '"'){
+      inQuotes = true;
+      continue;
+    }
+    if (ch === delim){
+      row.push(field);
+      field = '';
+      continue;
+    }
+    if (ch === '\n'){
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+      continue;
+    }
+    if (ch === '\r') continue;
+    field += ch;
   }
-  if (field.length || row.length){ row.push(field); rows.push(row); }
+
+  row.push(field);
+  rows.push(row);
   return rows;
 }
-function parseCsv(text){ return parseDelimited(text, ','); }
 
 function mapSeoRow(obj){
   const hreflangs = {};
@@ -550,34 +575,34 @@ function mapSeoRow(obj){
     }
   });
   return {
-    id: obj['Post ID']||'',
-    title: obj['Post Title']||'',
-    canonical: obj['Canonical']||'',
-    h1: obj['H1']||'',
-    seoTitle: obj['SEO Title']||'',
-    seoDesc: obj['SEO Description']||'',
-    robotsIndex: obj['Robots Index']||'',
-    robotsFollow: obj['Robots Follow']||'',
-    excludeSitemap: obj['Exclude from sitemaps']||'',
-    permalink: obj['Permalink']||'',
+    id: obj['Post ID'] || '',
+    title: obj['Post Title'] || '',
+    canonical: obj['Canonical'] || '',
+    h1: obj['H1'] || '',
+    seoTitle: obj['SEO Title'] || '',
+    seoDesc: obj['SEO Description'] || '',
+    robotsIndex: obj['Robots Index'] || '',
+    robotsFollow: obj['Robots Follow'] || '',
+    excludeSitemap: obj['Exclude from sitemaps'] || '',
+    permalink: obj['Permalink'] || '',
     hreflangCount: Object.keys(hreflangs).length,
     hreflangs,
   };
 }
 
 async function fetchLiveSeo(code, gid){
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${gid}`;
   const controller = new AbortController();
-  const timeoutId = setTimeout(()=>controller.abort(), 9000);
+  const timeoutId = setTimeout(()=>controller.abort(), 15000);
   try {
-    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${gid}`;
     const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) throw new Error('HTTP '+res.status);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
-    const rows = parseCsv(text).filter(r=>r.some(v=>v!==''));
+    const rows = parseDelimited(text, ',').filter(r=>r.some(v=>v !== ''));
     if (rows.length < 2) throw new Error('CSV vacío');
     const headers = rows[0];
     const data = rows.slice(1)
-      .map(r=>{ const obj = {}; headers.forEach((h,i)=>{ obj[h] = r[i]||''; }); return obj; })
+      .map(r=>{ const obj = {}; headers.forEach((h,i)=>{ obj[h] = r[i] || ''; }); return obj; })
       .map(mapSeoRow)
       .filter(r=>r.id);
     LIVE_SEO[code] = data;
@@ -614,14 +639,15 @@ async function initLiveSeo(){
 
   const fetches = Object.entries(SHEET_GIDS).map(([code,gid])=>
     fetchLiveSeo(code,gid).then(()=>{
-      if (code === state.market.code) render();
+      const activeCode = getActiveMarket().code;
+      if (code === activeCode) render();
     })
   );
   await Promise.allSettled(fetches);
   console.log('[Barad-dûr] Carga en segundo plano de SEO Tags completada para todos los mercados.');
 }
 
-async function forceLiveSeoRefresh(code = state.market.code){
+async function forceLiveSeoRefresh(code = getActiveMarket().code){
   const gid = SHEET_GIDS[code];
   if (!gid) return;
   try {
@@ -632,7 +658,7 @@ async function forceLiveSeoRefresh(code = state.market.code){
   delete LIVE_SEO_STATUS[code];
   delete LIVE_SEO_UPDATED_AT[code];
   await fetchLiveSeo(code, gid);
-  if (code === state.market.code) render();
+  if (code === getActiveMarket().code) render();
 }
 
 // Umbral de "frescura" de los SEO Tags: se recomienda subir el archivo/hoja al menos 1 vez por
@@ -759,10 +785,11 @@ async function handleKpiUpload(file){
       .map(r=>{ const obj = {}; headers.forEach((h,i)=>{ obj[i] = r[i]||''; }); return mapKpiRow(obj, headerIndex); })
       .filter(r=>r.estudio);
     if (!data.length) throw new Error('No se reconocieron columnas válidas (revisa las cabeceras).');
-    UPLOADED_KPI[state.market.code] = data;
-    delete kpiCache[state.market.code];
-    clearDerivedSeoCaches(state.market.code);
-    if (statusEl) statusEl.innerHTML = `<span class="badge live-ok">✓ ${data.length} titulaciones cargadas para ${esc(state.market.name)} · datos reales activos</span>`;
+    const market = getActiveMarket();
+    UPLOADED_KPI[market.code] = data;
+    delete kpiCache[market.code];
+    clearDerivedSeoCaches(market.code);
+    if (statusEl) statusEl.innerHTML = `<span class="badge live-ok">✓ ${data.length} titulaciones cargadas para ${esc(market.name)} · datos reales activos</span>`;
     render();
   } catch(e){
     if (statusEl) statusEl.innerHTML = `<span class="badge match-no">Error: ${esc(e.message)}</span>`;
@@ -787,6 +814,7 @@ function buildMarketKpi(market){
 
 const seoCache = {};
 const crossMarketMatchCache = {};
+const crossMarketStatsCache = {};
 function buildMarketSeo(market){
   if (seoCache[market.code]) return seoCache[market.code];
   if (LIVE_SEO[market.code]){
@@ -804,8 +832,8 @@ function buildMarketSeo(market){
 function clearDerivedSeoCaches(code){
   delete seoCache[code];
   delete kpiSeoMatchIndexByMarket[code];
-  delete seoToKpiIndexByMarket[code];
   delete crossMarketMatchCache[code];
+  delete crossMarketStatsCache[code];
 }
 
 function buildCrossMarketMatchIndex(market){
@@ -824,6 +852,24 @@ function buildCrossMarketMatchIndex(market){
   return index;
 }
 
+function buildCrossMarketStats(market = getActiveMarket()){
+  if (crossMarketStatsCache[market.code]) return crossMarketStatsCache[market.code];
+  const base = buildMarketSeo(market);
+  const others = MARKETS.filter(m=>m.code!==market.code).map(m=>({ market:m, index: buildCrossMarketMatchIndex(m) }));
+  const stats = base.map(row=>{
+    const core = normalizeMatch((row.title||'').replace(TITLE_PREFIX_RE,''));
+    const slug = (row.permalink||'').split('/').filter(Boolean).pop() || '';
+    const matches = [market.code];
+    others.forEach(({ market: otherMarket, index })=>{
+      const hit = (core && index.byCore.get(core)) || (slug && index.bySlug.get(slug));
+      if (hit) matches.push(otherMarket.code);
+    });
+    return { row, matches, count: matches.length };
+  }).sort((a,b)=>b.count-a.count || a.row.title.localeCompare(b.row.title));
+  crossMarketStatsCache[market.code] = stats;
+  return stats;
+}
+
 const crawlCache = {};
 function buildCrawlStatuses(market){
   if (crawlCache[market.code]) return crawlCache[market.code];
@@ -840,7 +886,6 @@ function buildHistorico(market){
 
 /* ======================= ALERTAS ======================= */
 function computeAlerts(market){
-  const kpi = buildMarketKpi(market);
   const seo = buildMarketSeo(market);
   const alerts = [];
 
@@ -869,48 +914,26 @@ function computeAlerts(market){
       });
     }
   });
-  kpi.forEach(row=>{
-    if (row.factYTD!=null && row.factLY!=null && row.factLY>0){
-      const diff = (row.factYTD-row.factLY)/row.factLY;
-      if (diff <= -0.3){
-        alerts.push({
-          sev:'critica', tipo:'Caída de facturación', detalle:row.estudio+' ('+Math.round(diff*100)+'% vs LY)', mercado:market.name,
-          estudio:row.estudio, source:'kpi',
-          reason:'La facturación YTD cae más de un 30% frente al año anterior para esta titulación.',
-          factYTD:row.factYTD, factLY:row.factLY
-        });
-      }
-    }
-    if (row.roiYTD!=null && row.roiYTD<0){
-      alerts.push({
-        sev:'alta', tipo:'ROI negativo', detalle:row.estudio, mercado:market.name,
-        estudio:row.estudio, source:'kpi',
-        reason:'El ROI YTD está por debajo de 0.', roiYTD:row.roiYTD
-      });
-    }
-    if (row.cpaYTD!=null && row.cpaLY!=null && row.cpaLY>0 && (row.cpaYTD-row.cpaLY)/row.cpaLY > 0.2){
-      alerts.push({
-        sev:'media', tipo:'Incremento de CPA > 20%', detalle:row.estudio, mercado:market.name,
-        estudio:row.estudio, source:'kpi',
-        reason:'El CPA YTD supera en más de 20% al CPA LY.', cpaYTD:row.cpaYTD, cpaLY:row.cpaLY
-      });
-    }
-  });
   const order = { critica:0, alta:1, media:2, baja:3 };
   alerts.sort((a,b)=>order[a.sev]-order[b.sev]);
   return alerts;
 }
 
 /* ======================= ESTADO GLOBAL ======================= */
-const state = { market: MARKETS[0], section:'home', filterHint:{} };
+const state = { market: null, section:'intro', filterHint:{} };
+
+function getActiveMarket(){
+  return state.market || MARKETS[0];
+}
 
 /* ======================= NAV / SHELL ======================= */
 function renderNav(){
   const nav = document.getElementById('nav');
-  nav.innerHTML = MODULES.map(m=>{
+  const modules = state.section === 'intro' ? MODULES.filter(m=>m.id === 'intro') : MODULES;
+  nav.innerHTML = modules.map(m=>{
     let extra = '';
-    if (m.id==='alerts'){
-      const n = computeAlerts(state.market).filter(a=>a.sev==='critica'||a.sev==='alta').length;
+    if (m.id==='alerts' && state.market){
+      const n = computeAlerts(getActiveMarket()).filter(a=>a.sev==='critica'||a.sev==='alta').length;
       if (n>0) extra = `<span class="badge-nav badge" style="margin-left:auto;background:#c0392b;color:#fff;">${n}</span>`;
     }
     return `<button data-section="${m.id}" class="${state.section===m.id?'active':''}">
@@ -924,42 +947,51 @@ function renderNav(){
 
 function renderMarketSelect(){
   const sel = document.getElementById('marketSelect');
-  sel.innerHTML = MARKETS.map(m=>`<option value="${m.code}" ${m.code===state.market.code?'selected':''}>${m.name}</option>`).join('');
-  sel.onchange = ()=>{ state.market = MARKETS.find(m=>m.code===sel.value); render(); };
+  const selectedCode = state.market ? state.market.code : '';
+  sel.innerHTML = [`<option value="" ${selectedCode===''?'selected':''}>Selecciona un mercado…</option>`, ...MARKETS.map(m=>`<option value="${m.code}" ${m.code===selectedCode?'selected':''}>${FLAGS[m.code] || '🏳️'} ${m.name}</option>`)].join('');
+  sel.onchange = ()=>{
+    if (!sel.value) return;
+    state.market = MARKETS.find(m=>m.code===sel.value) || MARKETS[0];
+    if (state.section === 'intro') state.section = 'home';
+    render();
+  };
 }
 
 const TITLES = {
-  home:['Home','Resumen ejecutivo del mercado'],
+  intro:['Bienvenido','Selecciona un mercado para empezar'],
+  home:['Home','Selector de mercado y títulos comunes entre países'],
   seo:['Titulaciones de UNIR','Canonical, Index, Follow, Hreflang, Title y Meta Description por ficha'],
-  cross:['Cross-Market','Comparativa de configuración SEO entre mercados'],
+  cross:['Cross-Market','Comparativa de títulos compartidos y diferencias entre mercados'],
   tech:['Technical Monitor','Crawl diario y estado de las URLs'],
-  bi:['Business Intelligence','Cupones, matrículas, facturación, CPA/CPL, ROI, precio medio y URL/H1 asociados'],
   alerts:['Alert Center','Incidencias críticas, altas, medias y bajas'],
   hist:['Histórico','Evolución semanal de SEO Tags y crawl'],
 };
 
 function goTo(section, hint){
+  if (section !== 'intro' && !state.market) return;
   state.section = section;
   state.filterHint = hint || {};
   render();
   window.scrollTo(0,0);
 }
 
-// Índice inverso: ficha SEO -> titulación de negocio mejor emparejada (para el modal de detalle
-// fusionado entre Titulaciones de UNIR y Business Intelligence).
-const seoToKpiIndexByMarket = {};
-function buildSeoToKpiMatch(market = state.market){
-  if (seoToKpiIndexByMarket[market.code]) return seoToKpiIndexByMarket[market.code];
-  const kpiIndex = buildKpiSeoMatch(market);
-  const idx = {};
-  Object.entries(kpiIndex).forEach(([estudio, m])=>{
-    if (!m) return;
-    if (!idx[m.seoId] || idx[m.seoId].score < m.score){
-      idx[m.seoId] = { estudio, score: m.score };
-    }
-  });
-  seoToKpiIndexByMarket[market.code] = idx;
-  return idx;
+function renderIntro(c){
+  c.innerHTML = `
+    <div class="card" style="max-width:940px;margin:0 auto;">
+      <div class="card-head"><h3>Antes de entrar</h3></div>
+      <div class="note">Elige un mercado para cargar sus SEO Tags y navegar por la herramienta con ese contexto. La navegación principal se desbloquea después de seleccionar un país.</div>
+      <div class="grid cols-3" style="margin-top:16px;">
+        ${MARKETS.map(m=>`
+          <button class="card kpi clickable" type="button" data-select-market="${m.code}" style="text-align:left;">
+            <div class="label">${FLAGS[m.code] || '🏳️'} ${esc(m.name)}</div>
+            <div class="value" style="font-size:20px;">${esc(m.name)}</div>
+            <div class="delta">${m.real ? 'Datos base disponibles' : 'Se carga vía Google Sheets'}</div>
+          </button>
+        `).join('')}
+      </div>
+      <div class="note" style="margin-top:16px;">Después de elegir mercado, entrarás en Home con la comparación de títulos comunes y distintos.</div>
+    </div>
+  `;
 }
 
 function detailKv(label, value){
@@ -967,15 +999,14 @@ function detailKv(label, value){
 }
 function openDetail(seoId, estudio, score){
   const seoRow = seoId ? buildMarketSeo(state.market).find(r=>r.id===seoId) : null;
-  const kpiRow = estudio ? buildMarketKpi(state.market).find(r=>r.estudio===estudio) : null;
-  const titulo = (seoRow && seoRow.title) || (kpiRow && kpiRow.estudio) || 'Ficha';
+  const titulo = (seoRow && seoRow.title) || 'Ficha';
+  const commonStats = seoRow ? buildCrossMarketStats(state.market).find(r=>r.row.id===seoRow.id) : null;
   let clasif = seoRow ? classifyTitle(seoRow.title) : 'Sin clasificar';
-  if (clasif==='Sin clasificar' && kpiRow) clasif = classifyEstudioPrefix(kpiRow.estudio);
   const clasifBadge = clasif==='Oficial' ? '<span class="badge oficial">Oficial</span>' : clasif==='Propio' ? '<span class="badge propio">Propio</span>' : '<span class="badge neutral">S/C</span>';
   let html = `
     <button class="modal-close" id="detailClose" type="button">✕</button>
     <h2>${esc(titulo)}</h2>
-    <div>${clasifBadge} <span style="font-size:11.5px;color:#7a8794;">${esc(state.market.name)}</span></div>
+    <div>${clasifBadge} <span style="font-size:11.5px;color:#7a8794;">${FLAGS[state.market.code] || '🏳️'} ${esc(state.market.name)}</span></div>
   `;
   if (seoRow){
     const hreflangList = Object.entries(seoRow.hreflangs||{}).map(([l])=>l).join(', ');
@@ -996,27 +1027,14 @@ function openDetail(seoId, estudio, score){
   } else {
     html += `<div class="modal-section note">No se encontró ficha SEO asociada en este mercado.</div>`;
   }
-  if (kpiRow){
-    const delta = (kpiRow.factYTD!=null && kpiRow.factLY!=null && kpiRow.factLY>0) ? ((kpiRow.factYTD-kpiRow.factLY)/kpiRow.factLY*100) : null;
+  if (commonStats){
+    const matchedFlags = commonStats.matches.map(code=>`${FLAGS[code] || '🏳️'} ${esc(MARKETS.find(m=>m.code===code)?.name || code)}`).join(' · ');
     html += `
       <div class="modal-section">
-        <h4>Performance — Business Intelligence</h4>
-        <div class="modal-grid">
-          ${detailKv('Facultad', esc(kpiRow.facultad))}
-          ${detailKv('Nivel', esc(kpiRow.nivel))}
-          ${detailKv('Cupones YTD', fmtNum(kpiRow.cuponesYTD))}
-          ${detailKv('Facturación YTD', fmtMoney(kpiRow.factYTD) + (delta!=null ? ` (${delta>=0?'▲':'▼'} ${fmtPct(Math.abs(delta))} vs LY)` : ''))}
-          ${detailKv('Precio medio', fmtMoney(kpiRow.precioYTD))}
-          ${detailKv('CPA YTD', fmtMoney(kpiRow.cpaYTD))}
-          ${detailKv('CPL YTD', fmtMoney(kpiRow.cplYTD))}
-          ${detailKv('ROI YTD', kpiRow.roiYTD==null?'—':fmtNum(kpiRow.roiYTD,2)+'x')}
-        </div>
+        <h4>Mercados donde coincide</h4>
+        <div class="modal-kv"><b>Presencia</b>${commonStats.matches.length}/${MARKETS.length} mercados</div>
+        <div class="modal-kv" style="margin-top:6px;"><b>Países</b>${matchedFlags || '<em>Sin coincidencias fuera del mercado activo</em>'}</div>
       </div>`;
-  } else {
-    html += `<div class="modal-section note">No se encontró performance de negocio asociada.</div>`;
-  }
-  if (seoRow && kpiRow && typeof score === 'number'){
-    html += `<div class="modal-section" style="font-size:11px;color:#7a8794;">Asociación título SEO ↔ estudio de negocio por coincidencia de nombre: ${Math.round(score*100)}% de confianza.</div>`;
   }
   const box = document.getElementById('detailModalBox');
   box.innerHTML = html;
@@ -1059,26 +1077,6 @@ function openAlertDetail(alert){
     }
   }
 
-  if (alert.source === 'kpi'){
-    const kpiRow = buildMarketKpi(state.market).find(r=>r.estudio===alert.estudio);
-    if (kpiRow){
-      html += `
-        <div class="modal-section">
-          <h4>Valores detectados</h4>
-          <div class="modal-grid">
-            ${detailKv('Titulación', esc(kpiRow.estudio))}
-            ${detailKv('Facturación YTD', fmtMoney(alert.factYTD))}
-            ${detailKv('Facturación LY', fmtMoney(alert.factLY))}
-            ${detailKv('CPA YTD', fmtMoney(alert.cpaYTD))}
-            ${detailKv('CPA LY', fmtMoney(alert.cpaLY))}
-            ${detailKv('ROI YTD', alert.roiYTD==null?'—':fmtNum(alert.roiYTD,2)+'x')}
-          </div>
-        </div>
-      `;
-      html += `<div class="modal-section"><button class="btn-export" id="alertOpenRelated" type="button">Abrir titulación relacionada</button></div>`;
-    }
-  }
-
   const box = document.getElementById('detailModalBox');
   box.innerHTML = html;
   box.querySelector('#detailClose').addEventListener('click', closeDetail);
@@ -1086,24 +1084,28 @@ function openAlertDetail(alert){
   if (relatedBtn){
     relatedBtn.addEventListener('click', ()=>{
       closeDetail();
-      if (alert.source === 'seo'){
-        const m = buildSeoToKpiMatch(state.market)[alert.seoId];
-        openDetail(alert.seoId, m ? m.estudio : null, m ? m.score : null);
-      } else {
-        const m = buildKpiSeoMatch(state.market)[alert.estudio];
-        openDetail(m ? m.seoId : null, alert.estudio, m ? m.score : null);
-      }
+      if (alert.source === 'seo') openDetail(alert.seoId, null, null);
     });
   }
   document.getElementById('detailModal').style.display = 'flex';
 }
 
-// Delegación de eventos ÚNICA sobre #content: cubre tanto los elementos [data-goto] (navegación
-// entre pestañas) como [data-detail-seo]/[data-detail-kpi] (modal de detalle fusionado), y sigue
+// Delegación de eventos ÚNICA sobre #content: cubre navegación y detalle SEO, y sigue
 // funcionando aunque las tablas se vuelvan a pintar internamente (búsqueda/filtros) sin pasar por
 // un render() completo.
 function setupDelegatedEvents(){
   document.getElementById('content').addEventListener('click', (e)=>{
+    const marketEl = e.target.closest('[data-select-market]');
+    if (marketEl){
+      const market = MARKETS.find(m=>m.code===marketEl.dataset.selectMarket);
+      if (market){
+        state.market = market;
+        state.section = 'home';
+        state.filterHint = {};
+        render();
+      }
+      return;
+    }
     const gotoEl = e.target.closest('[data-goto]');
     if (gotoEl){
       let hint = {};
@@ -1114,15 +1116,7 @@ function setupDelegatedEvents(){
     const seoDetailEl = e.target.closest('[data-detail-seo]');
     if (seoDetailEl){
       const seoId = seoDetailEl.dataset.detailSeo;
-      const m = buildSeoToKpiMatch(state.market)[seoId];
-      openDetail(seoId, m ? m.estudio : null, m ? m.score : null);
-      return;
-    }
-    const kpiDetailEl = e.target.closest('[data-detail-kpi]');
-    if (kpiDetailEl){
-      const estudio = kpiDetailEl.dataset.detailKpi;
-      const m = buildKpiSeoMatch(state.market)[estudio];
-      openDetail(m ? m.seoId : null, estudio, m ? m.score : null);
+      openDetail(seoId, null, null);
       return;
     }
   });
@@ -1139,72 +1133,70 @@ function render(){
   renderMarketSelect();
   const [title, sub] = TITLES[state.section];
   document.getElementById('pageTitle').textContent = title;
-  document.getElementById('pageSubtitle').textContent = sub + ' · ' + state.market.name;
+  document.getElementById('pageSubtitle').textContent = state.section === 'intro' ? sub : sub + ' · ' + getActiveMarket().name;
   const c = document.getElementById('content');
   c.innerHTML = '';
-  const renderers = { home:renderHome, seo:renderSeo, cross:renderCross, tech:renderTech, bi:renderBI, alerts:renderAlerts, hist:renderHist };
+  const renderers = { intro:renderIntro, home:renderHome, seo:renderSeo, cross:renderCross, tech:renderTech, alerts:renderAlerts, hist:renderHist };
   renderers[state.section](c);
 }
 
 /* ======================= HOME ======================= */
 function renderHome(c){
-  const kpi = buildMarketKpi(state.market);
   const seo = buildMarketSeo(state.market);
+  const stats = buildCrossMarketStats(state.market);
+  const shared = stats.filter(item=>item.count > 1);
+  const common = shared.filter(item=>item.count === MARKETS.length);
+  const unique = stats.filter(item=>item.count === 1);
   const alerts = computeAlerts(state.market);
-  const hasKpi = kpi.length>0;
-
-  const sum = (key)=> kpi.reduce((a,r)=> a + (r[key]||0), 0);
-  const factYTD = hasKpi ? sum('factYTD') : null;
-  const factLY = hasKpi ? sum('factLY') : null;
-  const cupones = hasKpi ? sum('cuponesYTD') : null;
-  const precioVals = kpi.filter(r=>r.precioYTD!=null).map(r=>r.precioYTD);
-  const precioAvg = precioVals.length ? (precioVals.reduce((a,b)=>a+b,0)/precioVals.length) : null;
-  const activas = hasKpi ? kpi.filter(r=>r.factYTD!=null || r.cuponesYTD!=null).length : null;
-  const factDelta = factLY>0 ? ((factYTD-factLY)/factLY*100) : null;
-
   const critCount = alerts.filter(a=>a.sev==='critica').length;
   const altaCount = alerts.filter(a=>a.sev==='alta').length;
+  const seoTotal = Math.max(seo.length, 1);
 
   const clasif = { Oficial:0, Propio:0, 'Sin clasificar':0 };
   seo.forEach(r=> clasif[classifyTitle(r.title)]++ );
-
-  const byFacultad = {};
-  kpi.forEach(r=>{ byFacultad[r.facultad] = (byFacultad[r.facultad]||0) + (r.factYTD||0); });
-  const topFac = Object.entries(byFacultad).sort((a,b)=>b[1]-a[1]).slice(0,8);
-  const maxFac = Math.max(...topFac.map(f=>f[1]), 1);
-  const seoTotal = Math.max(seo.length, 1);
   const gotoAttr = (section, hint)=> `data-goto="${section}" data-goto-hint='${JSON.stringify(hint||{}).replace(/'/g,"&#39;")}'`;
 
   c.innerHTML = `
-    <div class="note">Mercado activo: <strong>${state.market.name}</strong> · <strong>${marketKpiSourceLabel(state.market)}</strong>. Esta Home solo muestra datos reales: Perú base, facturación por CSV cargado y SEO encontrado en Google Sheets. Si un mercado no tiene archivo cargado, no se inventan métricas.</div>
-    <div class="grid cols-4">
-      <div class="card kpi clickable" ${gotoAttr('bi')}><div class="label">Facturación YTD</div><div class="value">${fmtMoney(factYTD)}</div>
-        <div class="delta ${factDelta>=0?'up':'down'}">${factDelta==null?'—':(factDelta>=0?'▲ ':'▼ ')+fmtPct(Math.abs(factDelta))} vs LY</div></div>
-      <div class="card kpi clickable" ${gotoAttr('bi')}><div class="label">Precio medio YTD</div><div class="value">${fmtMoney(precioAvg)}</div>
-        <div class="delta">sobre ${precioVals.length} titulaciones con precio</div></div>
-      <div class="card kpi clickable" ${gotoAttr('bi')}><div class="label">Titulaciones con actividad</div><div class="value">${fmtNum(activas)}</div>
-        <div class="delta">de ${kpi.length} titulaciones totales</div></div>
-      <div class="card kpi clickable" ${gotoAttr('bi')}><div class="label">Cupones YTD</div><div class="value">${fmtNum(cupones)}</div>
-        <div class="delta">M+R+B: ${fmtNum(hasKpi ? sum('mrbYTD') : null)}</div></div>
+    <div class="note">${FLAGS[state.market.code] || '🏳️'} <strong>${esc(state.market.name)}</strong> · selector de mercado primero, luego títulos comunes y títulos que cambian entre países.</div>
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-head"><h3>Mercado activo</h3></div>
+      <div class="modal-grid">
+        ${detailKv('Selector', `${FLAGS[state.market.code] || '🏳️'} ${esc(state.market.name)}`)}
+        ${detailKv('Titulaciones SEO', String(seo.length))}
+        ${detailKv('Títulos comunes', String(common.length))}
+        ${detailKv('Títulos distintos', String(unique.length))}
+      </div>
+    </div>
+
+    <div class="grid cols-2">
+      <div class="card">
+        <div class="card-head"><h3>Títulos comunes en todos los mercados</h3></div>
+        <div class="table-wrap" style="margin-top:8px;">
+          <table>
+            <thead><tr><th>Título</th><th>Mercados</th></tr></thead>
+            <tbody>${common.slice(0,8).map(item=>`<tr><td>${esc(item.row.title)}</td><td>${item.matches.map(code=>`${FLAGS[code] || '🏳️'} ${esc(MARKETS.find(m=>m.code===code)?.name || code)}`).join(' · ')}</td></tr>`).join('') || '<tr><td colspan="2">No hay títulos presentes en todos los mercados.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Títulos que cambian por mercado</h3></div>
+        <div class="table-wrap" style="margin-top:8px;">
+          <table>
+            <thead><tr><th>Título</th><th>Mercados</th></tr></thead>
+            <tbody>${unique.slice(0,8).map(item=>`<tr><td>${esc(item.row.title)}</td><td>${item.matches.map(code=>`${FLAGS[code] || '🏳️'} ${esc(MARKETS.find(m=>m.code===code)?.name || code)}`).join(' · ')}</td></tr>`).join('') || '<tr><td colspan="2">No hay títulos exclusivos visibles.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <div class="grid cols-2" style="margin-top:16px;">
       <div class="card">
-        <div class="card-head"><h3>Facturación YTD por Facultad</h3></div>
-        ${topFac.map(([fac,val])=>`
-          <div class="chart-bar-row clickable" ${gotoAttr('bi',{facultad:fac})} title="Ver titulaciones de ${esc(fac)} en Business Intelligence">
-            <div class="lbl" title="${esc(fac)}">${esc(fac)}</div>
-            <div class="track"><div class="fill" style="width:${(val/maxFac*100).toFixed(1)}%"></div></div>
-            <div class="val">${fmtMoney(val)}</div>
-            </div>`).join('') || '<p>Sin datos de facturación para este mercado. Carga un CSV en Business Intelligence.</p>'}
-      </div>
-      <div class="card">
-        <div class="card-head"><h3>Resumen ejecutivo e incidencias</h3></div>
+        <div class="card-head"><h3>Resumen SEO</h3></div>
         <div class="grid cols-2" style="gap:10px;margin-bottom:14px;">
           <div class="card kpi clickable" style="background:#fbe6e6;border-color:#f3c9c9;" ${gotoAttr('alerts',{sev:'critica'})}><div class="label">Alertas críticas</div><div class="value" style="color:var(--crit)">${critCount}</div></div>
           <div class="card kpi clickable" style="background:#fef4e2;border-color:#f6dfae;" ${gotoAttr('alerts',{sev:'alta'})}><div class="label">Alertas altas</div><div class="value" style="color:#e8792b">${altaCount}</div></div>
         </div>
-        <h3 style="font-size:13px;margin-bottom:8px;">Clasificación de titulaciones (Titulaciones de UNIR)</h3>
+        <h3 style="font-size:13px;margin-bottom:8px;">Clasificación de titulaciones</h3>
         <div class="chart-bar-row clickable" ${gotoAttr('seo',{clasif:'Oficial'})}><div class="lbl">Título Oficial</div><div class="track"><div class="fill" style="width:${(clasif.Oficial/seoTotal*100).toFixed(1)}%;background:${'#0066CC'}"></div></div><div class="val">${clasif.Oficial}</div></div>
         <div class="chart-bar-row clickable" ${gotoAttr('seo',{clasif:'Propio'})}><div class="lbl">Título Propio</div><div class="track"><div class="fill" style="width:${(clasif.Propio/seoTotal*100).toFixed(1)}%;background:${'#F26522'}"></div></div><div class="val">${clasif.Propio}</div></div>
         <div class="chart-bar-row clickable" ${gotoAttr('seo',{clasif:'Sin clasificar'})}><div class="lbl">Sin clasificar</div><div class="track"><div class="fill" style="width:${(clasif['Sin clasificar']/seoTotal*100).toFixed(1)}%;background:#9aa7b3"></div></div><div class="val">${clasif['Sin clasificar']}</div></div>
@@ -1365,8 +1357,9 @@ function renderSeo(c){
 
 /* ======================= CROSS-MARKET ======================= */
 function renderCross(c){
-  const base = buildMarketSeo(MARKETS[0]);
-  const others = MARKETS.slice(1).map(m=>({ market:m, index: buildCrossMarketMatchIndex(m) }));
+  const market = getActiveMarket();
+  const base = buildMarketSeo(market);
+  const others = MARKETS.filter(m=>m.code!==market.code).map(m=>({ market:m, index: buildCrossMarketMatchIndex(m) }));
   const rows = base.map(pe=>{
     const refCore = normalizeMatch((pe.title||'').replace(TITLE_PREFIX_RE,''));
     const refSlug = (pe.permalink||'').split('/').filter(Boolean).pop() || '';
@@ -1385,12 +1378,12 @@ function renderCross(c){
     return { pe, cells };
   });
   c.innerHTML = `
-    <div class="note">Comparativa SEO por ficha equivalente: <strong>Perú</strong> como referencia frente al resto de mercados. Se marca como alineado cuando existe la ficha equivalente en ese mercado, aunque la canonical o la URL cambien por mercado.</div>
+    <div class="note">Comparativa SEO por ficha equivalente: <strong>${esc(market.name)}</strong> como referencia frente al resto de mercados. Se marca como alineado cuando existe la ficha equivalente en ese mercado, aunque la canonical o la URL cambien por mercado.</div>
     <div class="table-wrap">
       <table>
         <thead><tr>
           <th style="min-width:280px;">Ficha (referencia Perú)</th>
-          ${others.map(m=>`<th style="text-align:center;">${m.name}</th>`).join('')}
+          ${others.map(m=>`<th style="text-align:center;">${m.market.name}</th>`).join('')}
         </tr></thead>
         <tbody>
           ${rows.map(r=>`<tr>
@@ -1449,97 +1442,13 @@ function renderTech(c){
   `;
 }
 
-/* ======================= BUSINESS INTELLIGENCE ======================= */
-function renderBI(c){
-  const hint = state.filterHint; state.filterHint = {};
-  const kpi = buildMarketKpi(state.market);
-  const seo = buildMarketSeo(state.market);
-  const seoById = {}; seo.forEach(r=>{ seoById[r.id]=r; });
-  const matchIndex = buildKpiSeoMatch(state.market);
-  const facultades = [...new Set(kpi.map(r=>r.facultad))].sort();
-  const niveles = [...new Set(kpi.map(r=>r.nivel))].sort();
-  c.innerHTML = `
-    <div class="note">Origen KPI del mercado activo: <strong>${marketKpiSourceLabel(state.market)}</strong>. En el CSV de origen, Inversión, CPA, CPL y ROI solo están disponibles a nivel agregado (no por titulación); por eso aparecen como "—" en la mayoría de filas de esta vista de detalle. Cupones, Facturación y Precio medio sí están disponibles por titulación. La columna <strong>URL / Título SEO / H1</strong> asocia cada titulación con su ficha SEO por coincidencia de nombre (normalizando prefijos de nivel y de título), y muestra el <strong>Post Title</strong> y el <strong>H1</strong> como referencia cruzada de ambos (para detectar si difieren de la denominación de negocio); no hay columna H2 en los SEO Tags exportados, por lo que solo se puede asociar H1. Haz clic en cualquier titulación para ver su ficha fusionada (SEO + performance).</div>
-    <div class="toolbar">
-      <select id="biFacultad"><option value="">Facultad: todas</option>${facultades.map(f=>`<option value="${esc(f)}" ${hint.facultad===f?'selected':''}>${esc(f)}</option>`).join('')}</select>
-      <select id="biNivel"><option value="">Nivel: todos</option>${niveles.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select>
-      <input type="text" id="biSearch" placeholder="Buscar titulación…">
-      <label class="btn-export" style="cursor:pointer;">⬆ Cargar CSV facturación<input type="file" id="biUpload" accept=".csv,.tsv,.txt,text/csv" style="display:none;"></label>
-      <span id="biUploadStatus"></span>
-      <span class="count" id="biCount"></span>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>Facultad</th><th>Titulación</th><th>Clasificación</th><th>Nivel</th><th>URL / Título SEO / H1</th>
-          <th class="num">Cupones YTD</th><th class="num">Facturación YTD</th><th class="num">Precio medio</th>
-          <th class="num">CPA YTD</th><th class="num">CPL YTD</th><th class="num">ROI YTD</th>
-        </tr></thead>
-        <tbody id="biBody"></tbody>
-      </table>
-    </div>
-  `;
-  document.getElementById('biUpload').addEventListener('change', (e)=>{
-    if (e.target.files && e.target.files[0]) handleKpiUpload(e.target.files[0]);
-  });
-  function matchCell(r){
-    const m = matchIndex[r.estudio];
-    const seoRow = m ? seoById[m.seoId] : null;
-    if (!m || !seoRow) return `<span class="badge match-no">Sin match</span>`;
-    const conf = m.score>=0.8 ? 'match-alta' : 'match-media';
-    const confLbl = m.score>=0.8 ? 'Alta' : 'Media';
-    const titlesDiffer = normalizeMatch(seoRow.title) !== normalizeMatch(seoRow.h1);
-    return `<div style="max-width:280px;">
-      <a href="${esc(seoRow.permalink)}" target="_blank" rel="noopener noreferrer" style="font-size:11.5px;word-break:break-all;">${esc(seoRow.permalink)}</a>
-      <div style="font-size:11px;color:#7a8794;margin-top:3px;" title="${esc(seoRow.title)}"><b>Post Title:</b> ${esc(seoRow.title)}</div>
-      <div style="font-size:11px;color:#7a8794;margin-top:1px;" title="${esc(seoRow.h1)}"><b>H1:</b> ${esc(seoRow.h1)}</div>
-      ${titlesDiffer ? '<div style="font-size:10.5px;color:var(--warn);margin-top:1px;">⚠ Post Title y H1 difieren</div>' : ''}
-      <span class="badge ${conf}" style="margin-top:4px;display:inline-block;">Match ${confLbl} (${Math.round(m.score*100)}%)</span>
-    </div>`;
-  }
-  function draw(){
-    const f = document.getElementById('biFacultad').value;
-    const n = document.getElementById('biNivel').value;
-    const q = document.getElementById('biSearch').value.toLowerCase();
-    const rows = kpi.filter(r=>{
-      if (f && r.facultad!==f) return false;
-      if (n && r.nivel!==n) return false;
-      if (q && !r.estudio.toLowerCase().includes(q)) return false;
-      return true;
-    });
-    document.getElementById('biCount').textContent = rows.length + ' titulaciones';
-    document.getElementById('biBody').innerHTML = rows.slice(0,300).map(r=>{
-      const clasif = classifyEstudioPrefix(r.estudio);
-      const clasifBadge = clasif==='Oficial' ? '<span class="badge oficial">Oficial</span>' : clasif==='Propio' ? '<span class="badge propio">Propio</span>' : '<span class="badge neutral">S/C</span>';
-      return `
-      <tr>
-        <td style="max-width:220px;">${esc(r.facultad)}</td>
-        <td class="clickable" data-detail-kpi="${esc(r.estudio)}" style="max-width:240px;" title="Ver ficha completa (SEO + performance de negocio)">${esc(r.estudio)}</td>
-        <td>${clasifBadge}</td>
-        <td><span class="badge neutral">${esc(r.nivel)}</span></td>
-        <td>${matchCell(r)}</td>
-        <td class="num">${fmtNum(r.cuponesYTD)}</td>
-        <td class="num">${fmtMoney(r.factYTD)}</td>
-        <td class="num">${fmtMoney(r.precioYTD)}</td>
-        <td class="num">${fmtMoney(r.cpaYTD)}</td>
-        <td class="num">${fmtMoney(r.cplYTD)}</td>
-        <td class="num">${r.roiYTD==null?'—':fmtNum(r.roiYTD,2)+'x'}</td>
-      </tr>`;
-    }).join('');
-  }
-  document.getElementById('biFacultad').addEventListener('change', draw);
-  document.getElementById('biNivel').addEventListener('change', draw);
-  document.getElementById('biSearch').addEventListener('input', debounce(draw, 250));
-  draw();
-}
-
 /* ======================= ALERT CENTER ======================= */
 function renderAlerts(c){
   const hint = state.filterHint; state.filterHint = {};
   const alerts = computeAlerts(state.market);
   const sevLabel = { critica:'Crítica', alta:'Alta', media:'Media', baja:'Baja' };
   c.innerHTML = `
-    <div class="note">Umbrales aplicados: <strong>Crítica</strong> = facturación −30% vs LY · <strong>Alta</strong> = noindex con sitemap incluido o ROI negativo · <strong>Media</strong> = sin hreflang o CPA +20% vs LY · <strong>Baja</strong> = metadatos SEO incompletos. Haz clic en cada alerta para ver el motivo.</div>
+    <div class="note">Umbrales aplicados: <strong>Alta</strong> = noindex con sitemap incluido · <strong>Media</strong> = sin hreflang · <strong>Baja</strong> = metadatos SEO incompletos. Haz clic en cada alerta para ver el motivo.</div>
     <div class="toolbar">
       <select id="alSev">
         <option value="">Severidad: todas</option>
