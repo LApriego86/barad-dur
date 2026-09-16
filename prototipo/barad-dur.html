@@ -378,7 +378,7 @@ const TITLE_MAX = 60;  // Longitud recomendada de SEO Title según guías de Goo
 const DESC_MAX = 160;  // Longitud recomendada de Meta Description según guías de Google (~150-160 caracteres)
 // Regla visual solicitada: cuando Robots Index y Robots Follow valen "0", se considera OK.
 function robotsBadge(val, type){
-  if (val !== '0' && val !== '1') return `<span class="badge sindef">sin definir</span>`;
+  if (val !== '0' && val !== '1') return `<span class="badge ok">sin definir (OK)</span>`;
   if (type === 'index'){
     return val === '0' ? `<span class="badge ok">index (0 · OK)</span>` : `<span class="badge warn">noindex (1)</span>`;
   }
@@ -409,6 +409,7 @@ function classifyTitle(title){
   if (t.includes('máster universitario') || t.includes('master universitario') ||
       t.includes('grado en') || t.includes('grado ') || t.includes('licenciatura') ||
       t.includes('carrera de') || t.includes('pregrado')) return 'Oficial';
+  if (t.includes('diplomado') || t.includes('programa') || t.includes('curso') || t.includes('especialista')) return 'Propio';
   return 'Sin clasificar';
 }
 // Clasificación por prefijo del "estudio" del archivo de negocio (confirmada por el usuario):
@@ -421,6 +422,26 @@ function classifyEstudioPrefix(estudio){
   if (/^g[_\s]/i.test(t)) return 'Oficial';
   if (/^m[_\s]/i.test(t)) return 'Propio';
   return classifyTitle(t);
+}
+
+function resolveTitleClass(code, row, overrides){
+  const map = overrides || loadTitleClassOverrides(code);
+  return map[row.id] || classifyTitle(row.title);
+}
+
+function detectNewSeoTitles(code, seoRows){
+  const currentIds = (seoRows || []).map(row => row && row.id).filter(Boolean);
+  const seenList = loadSeenSeoTitleIds(code);
+  if (!seenList.length){
+    saveSeenSeoTitleIds(code, Array.from(new Set(currentIds)));
+    return [];
+  }
+  const seen = new Set(seenList);
+  const fresh = (seoRows || []).filter(row => row && row.id && !seen.has(row.id));
+  if (!fresh.length) return [];
+  fresh.forEach(row => seen.add(row.id));
+  saveSeenSeoTitleIds(code, Array.from(seen));
+  return fresh;
 }
 
 /* ======================= ASOCIACIÓN TÍTULO ↔ SEO ======================= */
@@ -488,6 +509,8 @@ const LIVE_SEO_UPDATED_AT = {}; // market.code -> timestamp (ms) de la última c
 const SEO_CACHE_PREFIX = 'baraddur_seo_cache_';
 const SEO_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 días: por encima de esto, ignoramos el caché
 const SEO_STATUS_OVERRIDE_PREFIX = 'baraddur_seo_status_override_'; // market.code -> { seoId: 'ok'|'crit' }
+const TITLE_CLASS_OVERRIDE_PREFIX = 'baraddur_title_class_override_'; // market.code -> { seoId: 'Oficial'|'Propio'|'Sin clasificar' }
+const SEO_SEEN_TITLE_IDS_PREFIX = 'baraddur_seen_seo_title_ids_'; // market.code -> [seoId, ...]
 
 function loadSeoStatusOverrides(code){
   try {
@@ -501,6 +524,35 @@ function loadSeoStatusOverrides(code){
 function saveSeoStatusOverrides(code, map){
   try {
     localStorage.setItem(SEO_STATUS_OVERRIDE_PREFIX + code, JSON.stringify(map||{}));
+  } catch(e){ /* no crítico */ }
+}
+
+function loadTitleClassOverrides(code){
+  try {
+    const raw = localStorage.getItem(TITLE_CLASS_OVERRIDE_PREFIX + code);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed;
+  } catch(e){ return {}; }
+}
+function saveTitleClassOverrides(code, map){
+  try {
+    localStorage.setItem(TITLE_CLASS_OVERRIDE_PREFIX + code, JSON.stringify(map||{}));
+  } catch(e){ /* no crítico */ }
+}
+
+function loadSeenSeoTitleIds(code){
+  try {
+    const raw = localStorage.getItem(SEO_SEEN_TITLE_IDS_PREFIX + code);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+  } catch(e){ return []; }
+}
+function saveSeenSeoTitleIds(code, ids){
+  try {
+    localStorage.setItem(SEO_SEEN_TITLE_IDS_PREFIX + code, JSON.stringify(ids||[]));
   } catch(e){ /* no crítico */ }
 }
 
@@ -841,15 +893,40 @@ function buildCrossMarketMatchIndex(market){
   const rows = buildMarketSeo(market);
   const byCore = new Map();
   const bySlug = new Map();
-  rows.forEach(row=>{
+  const entries = rows.map(row=>{
     const core = normalizeMatch((row.title||'').replace(TITLE_PREFIX_RE,''));
     const slug = (row.permalink||'').split('/').filter(Boolean).pop() || '';
+    const words = new Set(core.split(' ').filter(Boolean));
     if (core && !byCore.has(core)) byCore.set(core, row);
     if (slug && !bySlug.has(slug)) bySlug.set(slug, row);
+    return { row, core, slug, words };
   });
-  const index = { byCore, bySlug };
+  const index = { byCore, bySlug, entries };
   crossMarketMatchCache[market.code] = index;
   return index;
+}
+
+function findCrossMarketMatch(row, index){
+  const core = normalizeMatch((row.title||'').replace(TITLE_PREFIX_RE,''));
+  const slug = (row.permalink||'').split('/').filter(Boolean).pop() || '';
+  const exact = (core && index.byCore.get(core)) || (slug && index.bySlug.get(slug));
+  if (exact) return exact;
+  const words = new Set(core.split(' ').filter(Boolean));
+  if (!words.size) return null;
+  let best = null;
+  let bestScore = 0;
+  index.entries.forEach(candidate=>{
+    if (!candidate.words.size) return;
+    let inter = 0;
+    words.forEach(w=>{ if (candidate.words.has(w)) inter++; });
+    const union = new Set([...words, ...candidate.words]).size;
+    const score = union ? inter / union : 0;
+    if (score > bestScore){
+      bestScore = score;
+      best = candidate.row;
+    }
+  });
+  return bestScore >= 0.58 ? best : null;
 }
 
 function buildCrossMarketStats(market = getActiveMarket()){
@@ -857,11 +934,9 @@ function buildCrossMarketStats(market = getActiveMarket()){
   const base = buildMarketSeo(market);
   const others = MARKETS.filter(m=>m.code!==market.code).map(m=>({ market:m, index: buildCrossMarketMatchIndex(m) }));
   const stats = base.map(row=>{
-    const core = normalizeMatch((row.title||'').replace(TITLE_PREFIX_RE,''));
-    const slug = (row.permalink||'').split('/').filter(Boolean).pop() || '';
     const matches = [market.code];
     others.forEach(({ market: otherMarket, index })=>{
-      const hit = (core && index.byCore.get(core)) || (slug && index.bySlug.get(slug));
+      const hit = findCrossMarketMatch(row, index);
       if (hit) matches.push(otherMarket.code);
     });
     return { row, matches, count: matches.length };
@@ -1001,7 +1076,7 @@ function openDetail(seoId, estudio, score){
   const seoRow = seoId ? buildMarketSeo(state.market).find(r=>r.id===seoId) : null;
   const titulo = (seoRow && seoRow.title) || 'Ficha';
   const commonStats = seoRow ? buildCrossMarketStats(state.market).find(r=>r.row.id===seoRow.id) : null;
-  let clasif = seoRow ? classifyTitle(seoRow.title) : 'Sin clasificar';
+  let clasif = seoRow ? resolveTitleClass(state.market.code, seoRow, loadTitleClassOverrides(state.market.code)) : 'Sin clasificar';
   const clasifBadge = clasif==='Oficial' ? '<span class="badge oficial">Oficial</span>' : clasif==='Propio' ? '<span class="badge propio">Propio</span>' : '<span class="badge neutral">S/C</span>';
   let html = `
     <button class="modal-close" id="detailClose" type="button">✕</button>
@@ -1043,6 +1118,34 @@ function openDetail(seoId, estudio, score){
 }
 function closeDetail(){
   document.getElementById('detailModal').style.display = 'none';
+}
+
+function openSeoNewTitlesPopup(market, rows){
+  const freshRows = rows || [];
+  if (!freshRows.length) return;
+  const box = document.getElementById('detailModalBox');
+  const list = freshRows.slice(0,12).map(row=>`<li>${esc(row.title)}${row.permalink ? ` <a href="${esc(row.permalink)}" target="_blank" rel="noopener noreferrer">abrir</a>` : ''}</li>`).join('');
+  box.innerHTML = `
+    <button class="modal-close" id="detailClose" type="button">✕</button>
+    <h2>Nuevos títulos detectados</h2>
+    <div><span class="badge live-ok">${freshRows.length} nuevo${freshRows.length===1?'':'s'}</span> <span style="font-size:11.5px;color:#7a8794;margin-left:8px;">${FLAGS[market.code] || '🏳️'} ${esc(market.name)}</span></div>
+    <div class="modal-section note" style="margin-top:16px;">Se han detectado títulos nuevos en el SEO tags de este mercado. Quedan marcados como vistos para no repetir el aviso.</div>
+    <div class="modal-section">
+      <h4>Títulos nuevos</h4>
+      <ul style="margin:0;padding-left:18px;line-height:1.6;">${list}</ul>
+    </div>
+    <div class="modal-section" style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn-export" id="openSeoModule" type="button">Abrir Titulaciones de UNIR</button>
+      <button class="btn-export" id="closeSeoPopup" type="button" style="background:#7a8794;">Cerrar</button>
+    </div>
+  `;
+  box.querySelector('#detailClose').addEventListener('click', closeDetail);
+  box.querySelector('#closeSeoPopup').addEventListener('click', closeDetail);
+  box.querySelector('#openSeoModule').addEventListener('click', ()=>{
+    closeDetail();
+    goTo('seo', { search: freshRows[0] ? freshRows[0].title : '' });
+  });
+  document.getElementById('detailModal').style.display = 'flex';
 }
 
 function openAlertDetail(alert){
@@ -1145,20 +1248,23 @@ function renderHome(c){
   const seo = buildMarketSeo(state.market);
   const stats = buildCrossMarketStats(state.market);
   const shared = stats.filter(item=>item.count > 1);
-  const common = shared.filter(item=>item.count === MARKETS.length);
+  const commonAll = shared.filter(item=>item.count === MARKETS.length);
+  const common = commonAll.length ? commonAll : shared;
+  const commonTitle = commonAll.length ? 'Títulos comunes en todos los mercados' : 'Títulos comunes entre mercados';
   const unique = stats.filter(item=>item.count === 1);
   const alerts = computeAlerts(state.market);
   const critCount = alerts.filter(a=>a.sev==='critica').length;
   const altaCount = alerts.filter(a=>a.sev==='alta').length;
   const seoTotal = Math.max(seo.length, 1);
+  const titleOverrides = loadTitleClassOverrides(state.market.code);
 
   const clasif = { Oficial:0, Propio:0, 'Sin clasificar':0 };
-  seo.forEach(r=> clasif[classifyTitle(r.title)]++ );
+  seo.forEach(r=> clasif[resolveTitleClass(state.market.code, r, titleOverrides)]++ );
   const gotoAttr = (section, hint)=> `data-goto="${section}" data-goto-hint='${JSON.stringify(hint||{}).replace(/'/g,"&#39;")}'`;
 
   c.innerHTML = `
     <div class="note">${FLAGS[state.market.code] || '🏳️'} <strong>${esc(state.market.name)}</strong> · selector de mercado primero, luego títulos comunes y títulos que cambian entre países.</div>
-    <div class="card" style="margin-bottom:16px;">
+    <div class="card clickable" ${gotoAttr('intro')} style="margin-bottom:16px;">
       <div class="card-head"><h3>Mercado activo</h3></div>
       <div class="modal-grid">
         ${detailKv('Selector', `${FLAGS[state.market.code] || '🏳️'} ${esc(state.market.name)}`)}
@@ -1169,16 +1275,17 @@ function renderHome(c){
     </div>
 
     <div class="grid cols-2">
-      <div class="card">
-        <div class="card-head"><h3>Títulos comunes en todos los mercados</h3></div>
+      <div class="card clickable" ${gotoAttr('cross')}>
+        <div class="card-head"><h3>${commonTitle}</h3></div>
         <div class="table-wrap" style="margin-top:8px;">
           <table>
             <thead><tr><th>Título</th><th>Mercados</th></tr></thead>
-            <tbody>${common.slice(0,8).map(item=>`<tr><td>${esc(item.row.title)}</td><td>${item.matches.map(code=>`${FLAGS[code] || '🏳️'} ${esc(MARKETS.find(m=>m.code===code)?.name || code)}`).join(' · ')}</td></tr>`).join('') || '<tr><td colspan="2">No hay títulos presentes en todos los mercados.</td></tr>'}</tbody>
+            <tbody>${common.slice(0,8).map(item=>`<tr><td>${esc(item.row.title)}</td><td>${item.matches.length}/${MARKETS.length} · ${item.matches.map(code=>`${FLAGS[code] || '🏳️'} ${esc(MARKETS.find(m=>m.code===code)?.name || code)}`).join(' · ')}</td></tr>`).join('') || '<tr><td colspan="2">No hay coincidencias compartidas visibles.</td></tr>'}</tbody>
           </table>
         </div>
+        ${commonAll.length ? '' : '<div class="note" style="margin-top:10px;">No hay títulos presentes en todos los mercados. Se muestran los compartidos por varios mercados para que el módulo no quede vacío.</div>'}
       </div>
-      <div class="card">
+      <div class="card clickable" ${gotoAttr('cross')}>
         <div class="card-head"><h3>Títulos que cambian por mercado</h3></div>
         <div class="table-wrap" style="margin-top:8px;">
           <table>
@@ -1190,7 +1297,7 @@ function renderHome(c){
     </div>
 
     <div class="grid cols-2" style="margin-top:16px;">
-      <div class="card">
+      <div class="card clickable" ${gotoAttr('seo')}>
         <div class="card-head"><h3>Resumen SEO</h3></div>
         <div class="grid cols-2" style="gap:10px;margin-bottom:14px;">
           <div class="card kpi clickable" style="background:#fbe6e6;border-color:#f3c9c9;" ${gotoAttr('alerts',{sev:'critica'})}><div class="label">Alertas críticas</div><div class="value" style="color:var(--crit)">${critCount}</div></div>
@@ -1203,6 +1310,11 @@ function renderHome(c){
       </div>
     </div>
   `;
+
+  const freshTitles = detectNewSeoTitles(state.market.code, seo);
+  if (freshTitles.length){
+    setTimeout(()=>openSeoNewTitlesPopup(state.market, freshTitles), 0);
+  }
 }
 
 /* ======================= TITULACIONES DE UNIR (ex SEO Inventory) ======================= */
@@ -1210,6 +1322,7 @@ function renderSeo(c){
   const hint = state.filterHint; state.filterHint = {};
   const seo = buildMarketSeo(state.market);
   const statusOverrides = loadSeoStatusOverrides(state.market.code);
+  const titleClassOverrides = loadTitleClassOverrides(state.market.code);
   const flag = FLAGS[state.market.code] || '🏳️';
 
   function computeEstadoAuto(row){
@@ -1222,6 +1335,9 @@ function renderSeo(c){
   }
   function computeEstado(row){
     return statusOverrides[row.id] || computeEstadoAuto(row);
+  }
+  function computeClasif(row){
+    return resolveTitleClass(state.market.code, row, titleClassOverrides);
   }
   function copyCell(text, max){
     const len = (text||'').length;
@@ -1265,7 +1381,7 @@ function renderSeo(c){
     <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Ficha</th><th>Título</th><th>SEO Title</th><th>Meta Description</th><th>Canonical</th><th>Index</th><th>Follow</th><th>Hreflangs</th><th>Sitemap</th><th>Estado</th>
+          <th>Ficha</th><th>Título</th><th>Clasificación</th><th>SEO Title</th><th>Meta Description</th><th>Canonical</th><th>Index</th><th>Follow</th><th>Hreflangs</th><th>Sitemap</th><th>Estado</th>
         </tr></thead>
         <tbody id="seoBody"></tbody>
       </table>
@@ -1278,7 +1394,7 @@ function renderSeo(c){
     const fClasif = document.getElementById('seoFilterClasif').value;
     const rows = seo.filter(r=>{
       const estado = computeEstado(r);
-      const clasif = classifyTitle(r.title);
+      const clasif = computeClasif(r);
       if (fEstado && estado!==fEstado) return false;
       if (fClasif && clasif!==fClasif) return false;
       if (q && !(r.title||'').toLowerCase().includes(q) && !(r.permalink||'').toLowerCase().includes(q)) return false;
@@ -1290,11 +1406,22 @@ function renderSeo(c){
       const estado = computeEstado(r);
       const estadoLbl = estado==='ok'?'<span class="badge ok">OK</span>':estado==='warn'?'<span class="badge warn">Revisar</span>':'<span class="badge crit">Crítico</span>';
       const override = statusOverrides[r.id] || '';
-      const clasif = classifyTitle(r.title);
+      const clasif = computeClasif(r);
       const clasifBadge = clasif==='Oficial' ? '<span class="badge oficial">Oficial</span>' : clasif==='Propio' ? '<span class="badge propio">Propio</span>' : '<span class="badge neutral">S/C</span>';
       return `<tr>
         <td>${r.id}</td>
         <td class="clickable" data-detail-seo="${esc(r.id)}" style="max-width:260px;" title="Ver ficha completa (SEO + performance de negocio)">${esc(r.title)}<br>${clasifBadge}</td>
+        <td style="min-width:170px;">
+          <span class="badge ${clasif==='Oficial'?'oficial':clasif==='Propio'?'propio':'neutral'}">${esc(clasif)}</span>
+          <div style="margin-top:5px;">
+            <select class="clasif-select" data-clasif-id="${esc(r.id)}">
+              <option value="" ${titleClassOverrides[r.id]===undefined?'selected':''}>Auto</option>
+              <option value="Oficial" ${titleClassOverrides[r.id]==='Oficial'?'selected':''}>Oficial</option>
+              <option value="Propio" ${titleClassOverrides[r.id]==='Propio'?'selected':''}>Propio</option>
+              <option value="Sin clasificar" ${titleClassOverrides[r.id]==='Sin clasificar'?'selected':''}>Sin clasificar</option>
+            </select>
+          </div>
+        </td>
         <td style="max-width:240px;">${copyCell(r.seoTitle, TITLE_MAX)}</td>
         <td style="max-width:280px;">${copyCell(r.seoDesc, DESC_MAX)}</td>
         <td style="max-width:220px;word-break:break-all;font-size:11.5px;color:#5a6672;">${esc(r.canonical)||'<em>vacío</em>'}</td>
@@ -1341,10 +1468,20 @@ function renderSeo(c){
     saveSeoStatusOverrides(state.market.code, statusOverrides);
     draw();
   });
+  document.getElementById('seoBody').addEventListener('change', (e)=>{
+    const sel = e.target.closest('.clasif-select');
+    if (!sel) return;
+    const id = sel.dataset.clasifId;
+    if (!id) return;
+    if (sel.value) titleClassOverrides[id] = sel.value;
+    else delete titleClassOverrides[id];
+    saveTitleClassOverrides(state.market.code, titleClassOverrides);
+    draw();
+  });
   document.getElementById('seoExport').addEventListener('click', ()=>{
     const headers = ['Post ID','Título','Clasificación','SEO Title','Long. SEO Title','Meta Description','Long. Meta Description','Canonical','Index','Follow','Hreflangs','Permalink'];
     const matrix = lastFiltered.map(r=>[
-      r.id, r.title, classifyTitle(r.title), r.seoTitle||'', (r.seoTitle||'').length,
+      r.id, r.title, computeClasif(r), r.seoTitle||'', (r.seoTitle||'').length,
       r.seoDesc||'', (r.seoDesc||'').length, r.canonical||'',
       r.robotsIndex==='1'?'noindex':(r.robotsIndex==='0'?'index':'sin definir'),
       r.robotsFollow==='0'?'nofollow':(r.robotsFollow==='1'?'follow':'sin definir'),
