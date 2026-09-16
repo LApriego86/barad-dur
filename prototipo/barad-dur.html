@@ -626,6 +626,7 @@ function mapSeoRow(obj){
       if (obj[col]) hreflangs[lang] = obj[col];
     }
   });
+  const statusCode = obj['Status Code'] || obj['Status code'] || obj['status code'] || obj['Status'] || '';
   return {
     id: obj['Post ID'] || '',
     title: obj['Post Title'] || '',
@@ -637,6 +638,7 @@ function mapSeoRow(obj){
     robotsFollow: obj['Robots Follow'] || '',
     excludeSitemap: obj['Exclude from sitemaps'] || '',
     permalink: obj['Permalink'] || '',
+    statusCode,
     hreflangCount: Object.keys(hreflangs).length,
     hreflangs,
   };
@@ -987,7 +989,15 @@ function computeAlerts(market){
         reason:'Está en noindex pero sigue incluida en sitemap; conviene revisar si el bloqueo es intencional.'
       });
     }
-    if (row.hreflangCount===0){
+    const codeNum = parseInt(row.statusCode, 10);
+    if (!Number.isNaN(codeNum) && codeNum >= 400){
+      alerts.push({
+        sev:'critica', tipo:'Status code en error', detalle:row.title, mercado:market.name,
+        seoId:row.id, source:'seo',
+        reason:`La URL devuelve un status code ${codeNum}.`
+      });
+    }
+    if (row.hreflangCount===0 && !row.canonical){
       alerts.push({
         sev:'media', tipo:'Sin hreflang configurado', detalle:row.title, mercado:market.name,
         seoId:row.id, source:'seo',
@@ -1293,7 +1303,7 @@ function renderHome(c){
         <div class="table-wrap" style="margin-top:8px;">
           <table>
             <thead><tr><th>Título</th><th>Mercados</th></tr></thead>
-            <tbody>${common.slice(0,8).map(item=>`<tr><td>${esc(item.row.title)}</td><td>${item.matches.length}/${MARKETS.length} · ${item.matches.map(code=>`${FLAGS[code] || '🏳️'} ${esc(MARKETS.find(m=>m.code===code)?.name || code)}`).join(' · ')}</td></tr>`).join('') || '<tr><td colspan="2">No hay coincidencias compartidas visibles.</td></tr>'}</tbody>
+            <tbody>${common.slice(0,8).map(item=>`<tr class="clickable" ${gotoAttr('seo',{search:item.row.title})} title="Ver esta ficha en Titulaciones de UNIR"><td>${esc(item.row.title)}</td><td>${item.matches.length}/${MARKETS.length} · ${item.matches.map(code=>`${FLAGS[code] || '🏳️'} ${esc(MARKETS.find(m=>m.code===code)?.name || code)}`).join(' · ')}</td></tr>`).join('') || '<tr><td colspan="2">No hay coincidencias compartidas visibles.</td></tr>'}</tbody>
           </table>
         </div>
         ${commonAll.length ? '' : '<div class="note" style="margin-top:10px;">No hay títulos presentes en todos los mercados. Se muestran los compartidos por varios mercados para que el módulo no quede vacío.</div>'}
@@ -1303,7 +1313,7 @@ function renderHome(c){
         <div class="table-wrap" style="margin-top:8px;">
           <table>
             <thead><tr><th>Título</th><th>Mercados</th></tr></thead>
-            <tbody>${unique.slice(0,8).map(item=>`<tr><td>${esc(item.row.title)}</td><td>${item.matches.map(code=>`${FLAGS[code] || '🏳️'} ${esc(MARKETS.find(m=>m.code===code)?.name || code)}`).join(' · ')}</td></tr>`).join('') || '<tr><td colspan="2">No hay títulos exclusivos visibles.</td></tr>'}</tbody>
+            <tbody>${unique.slice(0,8).map(item=>`<tr class="clickable" ${gotoAttr('seo',{search:item.row.title})} title="Ver esta ficha en Titulaciones de UNIR"><td>${esc(item.row.title)}</td><td>${item.matches.map(code=>`${FLAGS[code] || '🏳️'} ${esc(MARKETS.find(m=>m.code===code)?.name || code)}`).join(' · ')}</td></tr>`).join('') || '<tr><td colspan="2">No hay títulos exclusivos visibles.</td></tr>'}</tbody>
           </table>
         </div>
       </div>
@@ -1510,7 +1520,11 @@ function renderCross(c){
   const market = getActiveMarket();
   const base = buildMarketSeo(market);
   const others = MARKETS.filter(m=>m.code!==market.code).map(m=>({ market:m, index: buildCrossMarketMatchIndex(m) }));
-  const rows = base.map(pe=>{
+  const q = (state.filterHint.search || '').toLowerCase().trim();
+  const rows = base.filter(pe=>{
+    if (!q) return true;
+    return (pe.title||'').toLowerCase().includes(q) || (pe.permalink||'').toLowerCase().includes(q);
+  }).map(pe=>{
     const refCore = normalizeMatch((pe.title||'').replace(TITLE_PREFIX_RE,''));
     const refSlug = (pe.permalink||'').split('/').filter(Boolean).pop() || '';
     const cells = others.map(({ market, index })=>{
@@ -1529,6 +1543,10 @@ function renderCross(c){
   });
   c.innerHTML = `
     <div class="note">Comparativa SEO por ficha equivalente: <strong>${esc(market.name)}</strong> como referencia frente al resto de mercados. Se marca como alineado cuando existe la ficha equivalente en ese mercado, aunque la canonical o la URL cambien por mercado.</div>
+    <div class="toolbar">
+      <input type="text" id="crossSearch" placeholder="Buscar título o URL en Cross-Market…" value="${esc(state.filterHint.search || '')}">
+      <span class="count" id="crossCount"></span>
+    </div>
     <div class="table-wrap">
       <table>
         <thead><tr>
@@ -1557,6 +1575,14 @@ function renderCross(c){
       <span><i style="background:var(--crit);border-radius:50%;"></i> Sin ficha equivalente o con error de crawl — pasa el ratón para ver el detalle</span>
     </div>
   `;
+  const crossSearch = document.getElementById('crossSearch');
+  const crossCount = document.getElementById('crossCount');
+  if (crossCount) crossCount.textContent = rows.length + ' fichas';
+  if (crossSearch){
+    crossSearch.addEventListener('input', debounce(()=>{
+      goTo('cross', { search: crossSearch.value });
+    }, 250));
+  }
 }
 
 
