@@ -867,14 +867,27 @@ function buildMarketKpi(market){
 const seoCache = {};
 const crossMarketMatchCache = {};
 const crossMarketStatsCache = {};
+const CHILD_PAGE_MARKETS = new Set(['ES','AR','CL','US']);
+const CHILD_PAGE_TITLE_RE = /(acceso|documentacion|documentación|plan de estudios|claustro|metodologia|metodología|salidas profesionales|opiniones)/i;
+
+function isChildPageRow(row, market){
+  if (!row || !market || !CHILD_PAGE_MARKETS.has(market.code)) return false;
+  const text = normalizeMatch([row.title, row.permalink, row.h1, row.seoTitle, row.seoDesc].filter(Boolean).join(' '));
+  return CHILD_PAGE_TITLE_RE.test(text);
+}
+
+function filterSeoRowsForMarket(market, rows){
+  return (rows || []).filter(row=>!isChildPageRow(row, market));
+}
+
 function buildMarketSeo(market){
   if (seoCache[market.code]) return seoCache[market.code];
   if (LIVE_SEO[market.code]){
-    seoCache[market.code] = LIVE_SEO[market.code];
+    seoCache[market.code] = filterSeoRowsForMarket(market, LIVE_SEO[market.code]);
     return seoCache[market.code];
   }
   if (market.real){
-    seoCache[market.code] = SEO_RAW.map(r=>({...r}));
+    seoCache[market.code] = filterSeoRowsForMarket(market, SEO_RAW.map(r=>({...r})));
     return seoCache[market.code];
   }
   seoCache[market.code] = [];
