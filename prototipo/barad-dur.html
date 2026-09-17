@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Barad-dûr · Control Tower Tool</title>
+<link rel="icon" type="image/png" sizes="16x16" href="https://estudiantes-argentina.unir.net/wp-content/uploads/sites/33/2025/02/favicon_16x16.png">
 <style>
 :root{
   --primary:#0066CC;
@@ -1284,6 +1285,7 @@ function renderHome(c){
   const clasif = { Oficial:0, Propio:0, 'Sin clasificar':0 };
   seo.forEach(r=> clasif[resolveTitleClass(state.market.code, r, titleOverrides)]++ );
   const gotoAttr = (section, hint)=> `data-goto="${section}" data-goto-hint='${JSON.stringify(hint||{}).replace(/'/g,"&#39;")}'`;
+  const crossGoto = title=> gotoAttr('cross', { search: title });
 
   c.innerHTML = `
     <div class="note">${FLAGS[state.market.code] || '🏳️'} <strong>${esc(state.market.name)}</strong> · selector de mercado primero, luego títulos comunes y títulos que cambian entre países.</div>
@@ -1303,7 +1305,7 @@ function renderHome(c){
         <div class="table-wrap" style="margin-top:8px;">
           <table>
             <thead><tr><th>Título</th><th>Mercados</th></tr></thead>
-            <tbody>${common.slice(0,8).map(item=>`<tr class="clickable" ${gotoAttr('seo',{search:item.row.title})} title="Ver esta ficha en Titulaciones de UNIR"><td>${esc(item.row.title)}</td><td>${item.matches.length}/${MARKETS.length} · ${item.matches.map(code=>`${FLAGS[code] || '🏳️'} ${esc(MARKETS.find(m=>m.code===code)?.name || code)}`).join(' · ')}</td></tr>`).join('') || '<tr><td colspan="2">No hay coincidencias compartidas visibles.</td></tr>'}</tbody>
+            <tbody>${common.slice(0,8).map(item=>`<tr class="clickable" ${crossGoto(item.row.title)} title="Buscar este título en Cross-Market"><td>${esc(item.row.title)}</td><td>${item.matches.length}/${MARKETS.length} · ${item.matches.map(code=>`${FLAGS[code] || '🏳️'} ${esc(MARKETS.find(m=>m.code===code)?.name || code)}`).join(' · ')}</td></tr>`).join('') || '<tr><td colspan="2">No hay coincidencias compartidas visibles.</td></tr>'}</tbody>
           </table>
         </div>
         ${commonAll.length ? '' : '<div class="note" style="margin-top:10px;">No hay títulos presentes en todos los mercados. Se muestran los compartidos por varios mercados para que el módulo no quede vacío.</div>'}
@@ -1313,7 +1315,7 @@ function renderHome(c){
         <div class="table-wrap" style="margin-top:8px;">
           <table>
             <thead><tr><th>Título</th><th>Mercados</th></tr></thead>
-            <tbody>${unique.slice(0,8).map(item=>`<tr class="clickable" ${gotoAttr('seo',{search:item.row.title})} title="Ver esta ficha en Titulaciones de UNIR"><td>${esc(item.row.title)}</td><td>${item.matches.map(code=>`${FLAGS[code] || '🏳️'} ${esc(MARKETS.find(m=>m.code===code)?.name || code)}`).join(' · ')}</td></tr>`).join('') || '<tr><td colspan="2">No hay títulos exclusivos visibles.</td></tr>'}</tbody>
+            <tbody>${unique.slice(0,8).map(item=>`<tr class="clickable" ${crossGoto(item.row.title)} title="Buscar este título en Cross-Market"><td>${esc(item.row.title)}</td><td>${item.matches.map(code=>`${FLAGS[code] || '🏳️'} ${esc(MARKETS.find(m=>m.code===code)?.name || code)}`).join(' · ')}</td></tr>`).join('') || '<tr><td colspan="2">No hay títulos exclusivos visibles.</td></tr>'}</tbody>
           </table>
         </div>
       </div>
