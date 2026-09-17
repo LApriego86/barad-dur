@@ -401,6 +401,14 @@ function downloadCsv(filename, headers, matrix){
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(()=>URL.revokeObjectURL(url), 1000);
 }
+function downloadJson(filename, data){
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
 
 /* ======================= CLASIFICACIÓN DE TÍTULOS ======================= */
 // Regla de negocio (brief): Máster Universitario, Grado/Carrera/Licenciatura => Título Oficial
@@ -1421,6 +1429,7 @@ function renderSeo(c){
       </select>
       <button class="btn-export" id="seoForceRefresh" type="button">↻ Forzar lectura de SEOtags</button>
       <button class="btn-export" id="seoExport" type="button">⬇ Exportar CSV</button>
+      <button class="btn-export" id="seoExportJson" type="button">⬇ Exportar JSON para Apps Script</button>
       <span class="count" id="seoCount"></span>
     </div>
     <div class="table-wrap">
@@ -1506,6 +1515,21 @@ function renderSeo(c){
       r.hreflangCount, r.permalink||''
     ]);
     downloadCsv('titulaciones_unir_'+state.market.code+'.csv', headers, matrix);
+  });
+  document.getElementById('seoExportJson').addEventListener('click', ()=>{
+    const payload = lastFiltered.map(r=>({
+      'Post ID': r.id,
+      'Post Title': r.title,
+      'SEO Title': r.seoTitle || '',
+      'SEO Description': r.seoDesc || '',
+      'Canonical': r.canonical || '',
+      'Robots Index': r.robotsIndex || '',
+      'Robots Follow': r.robotsFollow || '',
+      'Exclude from sitemaps': r.excludeSitemap || '',
+      'Permalink': r.permalink || '',
+      'Status Code': r.statusCode || ''
+    }));
+    downloadJson('seo_tags_'+state.market.code+'.json', payload);
   });
   draw();
 }
