@@ -332,8 +332,8 @@ const FLAGS = { PE:'🇵🇪', MX:'🇲🇽', CO:'🇨🇴', EC:'🇪🇨', AR:'
 const MODULES = [
   { id:'intro', ico:'✨', label:'Elegir mercado' },
   { id:'home', ico:'🏠', label:'Home' },
-  { id:'seo', ico:'🗂️', label:'Titulaciones de UNIR' },
   { id:'cross', ico:'🌎', label:'Cross-Market' },
+  { id:'seo', ico:'🗂️', label:'SEO Meta tags Optimizer' },
   { id:'tech', ico:'🛰️', label:'Technical Monitor' },
   { id:'alerts', ico:'🚨', label:'Alert Center' },
   { id:'hist', ico:'🕘', label:'Histórico' },
@@ -1091,7 +1091,7 @@ function renderMarketSelect(){
 const TITLES = {
   intro:['Bienvenido','Selecciona un mercado para empezar'],
   home:['Home','Selector de mercado y títulos comunes entre países'],
-  seo:['Titulaciones de UNIR','Canonical, Index, Follow, Hreflang, Title y Meta Description por ficha'],
+  seo:['SEO Meta tags Optimizer','Canonical, Index, Follow, Hreflang, Title y Meta Description por ficha'],
   cross:['Cross-Market','Comparativa de títulos compartidos y diferencias entre mercados'],
   tech:['Technical Monitor','Crawl diario y estado de las URLs'],
   alerts:['Alert Center','Incidencias críticas, altas, medias y bajas'],
@@ -1132,18 +1132,16 @@ function openDetail(seoId, estudio, score){
   const seoRow = seoId ? buildMarketSeo(state.market).find(r=>r.id===seoId) : null;
   const titulo = (seoRow && seoRow.title) || 'Ficha';
   const commonStats = seoRow ? buildCrossMarketStats(state.market).find(r=>r.row.id===seoRow.id) : null;
-  let clasif = seoRow ? resolveTitleClass(state.market.code, seoRow, loadTitleClassOverrides(state.market.code)) : 'Sin clasificar';
-  const clasifBadge = clasif==='Oficial' ? '<span class="badge oficial">Oficial</span>' : clasif==='Propio' ? '<span class="badge propio">Propio</span>' : '<span class="badge neutral">S/C</span>';
   let html = `
     <button class="modal-close" id="detailClose" type="button">✕</button>
     <h2>${esc(titulo)}</h2>
-    <div>${clasifBadge} <span style="font-size:11.5px;color:#7a8794;">${FLAGS[state.market.code] || '🏳️'} ${esc(state.market.name)}</span></div>
+    <div><span style="font-size:11.5px;color:#7a8794;">${FLAGS[state.market.code] || '🏳️'} ${esc(state.market.name)}</span></div>
   `;
   if (seoRow){
     const hreflangList = Object.entries(seoRow.hreflangs||{}).map(([l])=>l).join(', ');
     html += `
       <div class="modal-section">
-        <h4>SEO — Titulaciones de UNIR</h4>
+        <h4>SEO — Meta tags</h4>
         <div class="modal-grid">
           ${detailKv('Permalink', seoRow.permalink ? `<a href="${esc(seoRow.permalink)}" target="_blank" rel="noopener noreferrer" style="word-break:break-all;">${esc(seoRow.permalink)}</a>` : '<em>vacío</em>')}
           ${detailKv('Canonical', esc(seoRow.canonical)||'<em>vacío</em>')}
@@ -1191,7 +1189,7 @@ function openSeoNewTitlesPopup(market, rows){
       <ul style="margin:0;padding-left:18px;line-height:1.6;">${list}</ul>
     </div>
     <div class="modal-section" style="display:flex;gap:10px;flex-wrap:wrap;">
-      <button class="btn-export" id="openSeoModule" type="button">Abrir Titulaciones de UNIR</button>
+      <button class="btn-export" id="openSeoModule" type="button">Abrir SEO Meta tags Optimizer</button>
       <button class="btn-export" id="closeSeoPopup" type="button" style="background:#7a8794;">Cerrar</button>
     </div>
   `;
@@ -1312,10 +1310,9 @@ function renderHome(c){
   const critCount = alerts.filter(a=>a.sev==='critica').length;
   const altaCount = alerts.filter(a=>a.sev==='alta').length;
   const seoTotal = Math.max(seo.length, 1);
-  const titleOverrides = loadTitleClassOverrides(state.market.code);
-
-  const clasif = { Oficial:0, Propio:0, 'Sin clasificar':0 };
-  seo.forEach(r=> clasif[resolveTitleClass(state.market.code, r, titleOverrides)]++ );
+  const metaMissing = seo.filter(r=>!r.seoTitle || !r.seoDesc).length;
+  const statusErrors = seo.filter(r=>{ const code = parseInt(r.statusCode, 10); return !Number.isNaN(code) && code >= 400; }).length;
+  const noindexCount = seo.filter(r=>r.robotsIndex==='1').length;
   const gotoAttr = (section, hint)=> `data-goto="${section}" data-goto-hint='${JSON.stringify(hint||{}).replace(/'/g,"&#39;")}'`;
   const crossGoto = title=> gotoAttr('cross', { search: title });
 
@@ -1355,15 +1352,16 @@ function renderHome(c){
 
     <div class="grid cols-2" style="margin-top:16px;">
       <div class="card clickable" ${gotoAttr('seo')}>
-        <div class="card-head"><h3>Resumen SEO</h3></div>
+        <div class="card-head"><h3>Resumen de meta tags</h3></div>
         <div class="grid cols-2" style="gap:10px;margin-bottom:14px;">
           <div class="card kpi clickable" style="background:#fbe6e6;border-color:#f3c9c9;" ${gotoAttr('alerts',{sev:'critica'})}><div class="label">Alertas críticas</div><div class="value" style="color:var(--crit)">${critCount}</div></div>
           <div class="card kpi clickable" style="background:#fef4e2;border-color:#f6dfae;" ${gotoAttr('alerts',{sev:'alta'})}><div class="label">Alertas altas</div><div class="value" style="color:#e8792b">${altaCount}</div></div>
         </div>
-        <h3 style="font-size:13px;margin-bottom:8px;">Clasificación de titulaciones</h3>
-        <div class="chart-bar-row clickable" ${gotoAttr('seo',{clasif:'Oficial'})}><div class="lbl">Título Oficial</div><div class="track"><div class="fill" style="width:${(clasif.Oficial/seoTotal*100).toFixed(1)}%;background:${'#0066CC'}"></div></div><div class="val">${clasif.Oficial}</div></div>
-        <div class="chart-bar-row clickable" ${gotoAttr('seo',{clasif:'Propio'})}><div class="lbl">Título Propio</div><div class="track"><div class="fill" style="width:${(clasif.Propio/seoTotal*100).toFixed(1)}%;background:${'#F26522'}"></div></div><div class="val">${clasif.Propio}</div></div>
-        <div class="chart-bar-row clickable" ${gotoAttr('seo',{clasif:'Sin clasificar'})}><div class="lbl">Sin clasificar</div><div class="track"><div class="fill" style="width:${(clasif['Sin clasificar']/seoTotal*100).toFixed(1)}%;background:#9aa7b3"></div></div><div class="val">${clasif['Sin clasificar']}</div></div>
+        <div class="grid cols-3" style="gap:10px;">
+          <div class="card kpi clickable" ${gotoAttr('seo',{search:''})}><div class="label">Metas incompletas</div><div class="value">${metaMissing}</div></div>
+          <div class="card kpi clickable" ${gotoAttr('seo',{search:''})}><div class="label">Status code 4xx/5xx</div><div class="value">${statusErrors}</div></div>
+          <div class="card kpi clickable" ${gotoAttr('seo',{search:''})}><div class="label">Noindex</div><div class="value">${noindexCount}</div></div>
+        </div>
       </div>
     </div>
   `;
@@ -1374,12 +1372,11 @@ function renderHome(c){
   }
 }
 
-/* ======================= TITULACIONES DE UNIR (ex SEO Inventory) ======================= */
+/* ======================= SEO META TAGS OPTIMIZER ======================= */
 function renderSeo(c){
   const hint = state.filterHint; state.filterHint = {};
   const seo = buildMarketSeo(state.market);
   const statusOverrides = loadSeoStatusOverrides(state.market.code);
-  const titleClassOverrides = loadTitleClassOverrides(state.market.code);
   const flag = FLAGS[state.market.code] || '🏳️';
 
   function computeEstadoAuto(row){
@@ -1392,9 +1389,6 @@ function renderSeo(c){
   }
   function computeEstado(row){
     return statusOverrides[row.id] || computeEstadoAuto(row);
-  }
-  function computeClasif(row){
-    return resolveTitleClass(state.market.code, row, titleClassOverrides);
   }
   function copyCell(text, max){
     const len = (text||'').length;
@@ -1416,7 +1410,7 @@ function renderSeo(c){
     <div class="note">Fuente de SEO Tags centralizada: <a href="https://docs.google.com/spreadsheets/d/18TZwVXxoTW1nIXPpjUCZPs80fhp0NNyYjm_EyPOgIAM/edit?gid=689888921#gid=689888921" target="_blank" rel="noopener noreferrer">Google Spreadsheet de SEO tags</a>.</div>
     <div class="note">${freshnessNote(state.market.code)}</div>
     <div class="note">Guías SEO aplicadas: <strong>SEO Title</strong> recomendado ≤ ${TITLE_MAX} caracteres · <strong>Meta Description</strong> recomendada ≤ ${DESC_MAX} caracteres (Google suele truncar el snippet a partir de ahí). Pasa el ratón sobre el número de hreflangs para ver el detalle por idioma.</div>
-    <div class="note">En <strong>Estado</strong> puedes validar manualmente cada fila como <strong>Bien</strong> o <strong>No</strong>. Si lo dejas en <strong>Auto</strong>, se usa la regla automática.</div>
+    <div class="note">Vista orientada a revisión y exportación en lote. Para escribir cambios de vuelta en Google Sheets hace falta integrar Apps Script o un backend con Google Sheets API; en este prototipo estático no hay escritura directa al Drive.</div>
     <div class="toolbar">
       <input type="text" id="seoSearch" placeholder="Buscar por título o URL…" value="${esc(hint.search||'')}">
       <select id="seoFilterEstado">
@@ -1425,12 +1419,6 @@ function renderSeo(c){
         <option value="warn">Revisar</option>
         <option value="crit">Crítico</option>
       </select>
-      <select id="seoFilterClasif">
-        <option value="">Título: todos</option>
-        <option value="Oficial" ${hint.clasif==='Oficial'?'selected':''}>Oficial</option>
-        <option value="Propio" ${hint.clasif==='Propio'?'selected':''}>Propio</option>
-        <option value="Sin clasificar" ${hint.clasif==='Sin clasificar'?'selected':''}>Sin clasificar</option>
-      </select>
       <button class="btn-export" id="seoForceRefresh" type="button">↻ Forzar lectura de SEOtags</button>
       <button class="btn-export" id="seoExport" type="button">⬇ Exportar CSV</button>
       <span class="count" id="seoCount"></span>
@@ -1438,7 +1426,7 @@ function renderSeo(c){
     <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Ficha</th><th>Título</th><th>Clasificación</th><th>SEO Title</th><th>Meta Description</th><th>Canonical</th><th>Index</th><th>Follow</th><th>Hreflangs</th><th>Sitemap</th><th>Estado</th>
+          <th>Ficha</th><th>Título</th><th>SEO Title</th><th>Meta Description</th><th>Canonical</th><th>Index</th><th>Follow</th><th>Hreflangs</th><th>Sitemap</th><th>Estado</th>
         </tr></thead>
         <tbody id="seoBody"></tbody>
       </table>
@@ -1448,12 +1436,9 @@ function renderSeo(c){
   function draw(){
     const q = document.getElementById('seoSearch').value.toLowerCase();
     const fEstado = document.getElementById('seoFilterEstado').value;
-    const fClasif = document.getElementById('seoFilterClasif').value;
     const rows = seo.filter(r=>{
       const estado = computeEstado(r);
-      const clasif = computeClasif(r);
       if (fEstado && estado!==fEstado) return false;
-      if (fClasif && clasif!==fClasif) return false;
       if (q && !(r.title||'').toLowerCase().includes(q) && !(r.permalink||'').toLowerCase().includes(q)) return false;
       return true;
     });
@@ -1463,22 +1448,9 @@ function renderSeo(c){
       const estado = computeEstado(r);
       const estadoLbl = estado==='ok'?'<span class="badge ok">OK</span>':estado==='warn'?'<span class="badge warn">Revisar</span>':'<span class="badge crit">Crítico</span>';
       const override = statusOverrides[r.id] || '';
-      const clasif = computeClasif(r);
-      const clasifBadge = clasif==='Oficial' ? '<span class="badge oficial">Oficial</span>' : clasif==='Propio' ? '<span class="badge propio">Propio</span>' : '<span class="badge neutral">S/C</span>';
       return `<tr>
         <td>${r.id}</td>
-        <td class="clickable" data-detail-seo="${esc(r.id)}" style="max-width:260px;" title="Ver ficha completa (SEO + performance de negocio)">${esc(r.title)}<br>${clasifBadge}</td>
-        <td style="min-width:170px;">
-          <span class="badge ${clasif==='Oficial'?'oficial':clasif==='Propio'?'propio':'neutral'}">${esc(clasif)}</span>
-          <div style="margin-top:5px;">
-            <select class="clasif-select" data-clasif-id="${esc(r.id)}">
-              <option value="" ${titleClassOverrides[r.id]===undefined?'selected':''}>Auto</option>
-              <option value="Oficial" ${titleClassOverrides[r.id]==='Oficial'?'selected':''}>Oficial</option>
-              <option value="Propio" ${titleClassOverrides[r.id]==='Propio'?'selected':''}>Propio</option>
-              <option value="Sin clasificar" ${titleClassOverrides[r.id]==='Sin clasificar'?'selected':''}>Sin clasificar</option>
-            </select>
-          </div>
-        </td>
+        <td class="clickable" data-detail-seo="${esc(r.id)}" style="max-width:260px;" title="Ver ficha completa (SEO + performance de negocio)">${esc(r.title)}</td>
         <td style="max-width:240px;">${copyCell(r.seoTitle, TITLE_MAX)}</td>
         <td style="max-width:280px;">${copyCell(r.seoDesc, DESC_MAX)}</td>
         <td style="max-width:220px;word-break:break-all;font-size:11.5px;color:#5a6672;">${esc(r.canonical)||'<em>vacío</em>'}</td>
@@ -1501,7 +1473,6 @@ function renderSeo(c){
   }
   document.getElementById('seoSearch').addEventListener('input', debounce(draw, 250));
   document.getElementById('seoFilterEstado').addEventListener('change', draw);
-  document.getElementById('seoFilterClasif').addEventListener('change', draw);
   document.getElementById('seoForceRefresh').addEventListener('click', async (e)=>{
     const btn = e.currentTarget;
     btn.disabled = true;
@@ -1525,20 +1496,10 @@ function renderSeo(c){
     saveSeoStatusOverrides(state.market.code, statusOverrides);
     draw();
   });
-  document.getElementById('seoBody').addEventListener('change', (e)=>{
-    const sel = e.target.closest('.clasif-select');
-    if (!sel) return;
-    const id = sel.dataset.clasifId;
-    if (!id) return;
-    if (sel.value) titleClassOverrides[id] = sel.value;
-    else delete titleClassOverrides[id];
-    saveTitleClassOverrides(state.market.code, titleClassOverrides);
-    draw();
-  });
   document.getElementById('seoExport').addEventListener('click', ()=>{
-    const headers = ['Post ID','Título','Clasificación','SEO Title','Long. SEO Title','Meta Description','Long. Meta Description','Canonical','Index','Follow','Hreflangs','Permalink'];
+    const headers = ['Post ID','Título','SEO Title','Long. SEO Title','Meta Description','Long. Meta Description','Canonical','Index','Follow','Hreflangs','Permalink'];
     const matrix = lastFiltered.map(r=>[
-      r.id, r.title, computeClasif(r), r.seoTitle||'', (r.seoTitle||'').length,
+      r.id, r.title, r.seoTitle||'', (r.seoTitle||'').length,
       r.seoDesc||'', (r.seoDesc||'').length, r.canonical||'',
       r.robotsIndex==='1'?'noindex':(r.robotsIndex==='0'?'index':'sin definir'),
       r.robotsFollow==='0'?'nofollow':(r.robotsFollow==='1'?'follow':'sin definir'),
@@ -1599,7 +1560,7 @@ function renderCross(c){
         </tr></thead>
         <tbody>
           ${rows.map(r=>`<tr>
-            <td class="clickable" data-goto="seo" data-goto-hint='${JSON.stringify({search:r.pe.title}).replace(/'/g,"&#39;")}' title="Ver esta ficha en Titulaciones de UNIR">${esc(r.pe.title)}</td>
+            <td class="clickable" data-goto="seo" data-goto-hint='${JSON.stringify({search:r.pe.title}).replace(/'/g,"&#39;")}' title="Abrir esta ficha en SEO Meta tags Optimizer">${esc(r.pe.title)}</td>
             ${r.cells.map(cell=>{
               const popup = cell.match
                 ? `<div>✓ Ficha equivalente encontrada en ${esc(cell.market.name)}</div>
